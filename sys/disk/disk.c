@@ -67,23 +67,23 @@ void read_disk_block(long frame_id, char *buf) {
     }
 }
 
+// had to change a bit
 void write_disk_block(long frame_id, const char *buf) {
     char disk_name[MAX_DISK_NAME_LEN];
     get_disk_name(disk_name);
 
-    FILE *disk = fopen(disk_name, "w+");
+    FILE *disk = fopen(disk_name, "r+b");  // "r+b": open for update, not w+ which truncates..
     if (!disk) {
         fprintf(stderr, "Could not open disk...\n");
         __builtin_trap();
     }
 
-    // move the cursor to the location in the disk
+    // write length frame length now always
     fseek(disk, FRAME_LEN * frame_id, SEEK_SET);
 
-    long n = strlen(buf) > FRAME_LEN ? FRAME_LEN : strlen(buf);
-    long bytes_written = 0;
-    long result;
-    while ((result = fwrite(buf, 1, n - bytes_written, disk)) > 0) {
+    long bytes_written = 0, result;
+    while (bytes_written < FRAME_LEN &&
+           (result = fwrite(buf + bytes_written, 1, FRAME_LEN - bytes_written, disk)) > 0) { // buf advances every time
         bytes_written += result;
     }
 
