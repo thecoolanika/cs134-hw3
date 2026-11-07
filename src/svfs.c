@@ -74,12 +74,10 @@ void svfs_read_vnode(fs_t *fs, vnode_t *vn) {
 
     read_disk_block(ino + 1, buf); 
     node->inode = *(svfs_inode_t *) buf; // sets node->inode to the inode in buf 
-    node->dirtied_inode = 0; // starts at 0
-
+    node->dirtied_inode = 0; 
     vn->vn_fs = fs; 
-    vn->parent = node; // point to the same thing?? 
+    vn->parent = node;
     vn->vn_len = node->inode.svi_un.svi_size; 
-
     vn->vn_mode = REGULAR; // default regular file
 
     // checks if the vnode is a directory
@@ -95,6 +93,7 @@ void svfs_read_vnode(fs_t *fs, vnode_t *vn) {
     } else {
         vn->vn_ops = &svfs_file_vops; 
     }
+
    
     mobj_create(&vn->vn_mobj, &svfs_mobj_ops); 
     vn->vn_mobj.parent = vn; 
@@ -132,6 +131,7 @@ long svfs_alloc_inode(svfs_t *svfs) {
         return -1;
     }
 
+
     read_disk_block(ino + 1, buf);
     svfs->svfs_super.svs_free_inode = ((svfs_inode_t *) buf)->svi_un.svi_next_free; // the pointer for the the next free inode points from this inode to the next free inode
 
@@ -159,14 +159,14 @@ long svfs_find_dirent(svfs_node_t *dir, const char *name, long namelen,
 
     for (long i = 0; i + dsize <= dir->vnode.vn_len; i += dsize) { // go through each dirent in the directory
         long read = svfs_read(&dir->vnode, i, &d, dsize);
-        if (read != dsize) { // if the dirent is not the correct size return -1
+        if (read != dsize) { 
             return -1;
         }
 
-        long match = (d.d_name[namelen] == '\0'); // if the name is the same as '\0', match = 1 (true)
+        long match = (d.d_name[namelen] == '\0'); 
         for (long j = 0; j < namelen && match; j++) { // compare each character in the current dirent's name and name we are given
             if (d.d_name[j] != name[j]) {
-                match = 0; // not same -- false
+                match = 0; 
             }
         }
 
@@ -182,21 +182,20 @@ long svfs_find_dirent(svfs_node_t *dir, const char *name, long namelen,
  * Reads a file from the mobj and passes the data to the buf
  */
 long svfs_read(vnode_t *vn, long pos, void *buf, long len) {
-    if (pos < 0 || len < 0) { // if pos and len invalid return -1
+    if (pos < 0 || len < 0) { 
         return -1;
     }
     if (pos >= vn->vn_len) { // pos ahead of len return 0 -- past the end of the file
-        return 0;
-    }
-    if (pos + len > vn->vn_len) { // if pos and len are past the end of the file make len the length of the file
+        return 0; }
+    if (pos + len > vn->vn_len) { // imake len the length of the file
         len = vn->vn_len - pos;
     }
 
-    for (long page = pos / SV_BLOCK_SIZE; page <= (pos + len - 1) / SV_BLOCK_SIZE; page++) { // go through each page
-        pframe_t *pf; // get page frame from mobj and make sure it is not NULL/it is loaded into mobj
+    for (long page = pos / SV_BLOCK_SIZE; page <= (pos + len - 1) / SV_BLOCK_SIZE; page++) { // pf is loaded into mobj
+        pframe_t *pf; 
         mobj_get_pframe(&vn->vn_mobj, page, &pf);
         if (pf == NULL) {
-            return -1; // not loaded so return -1
+            return -1; 
         }
     }
 
@@ -211,56 +210,58 @@ long svfs_write(vnode_t *vn, long pos, const void *buf, long len) {
     svfs_super_t *super = &svfs.svfs_super; 
     char blk[SV_BLOCK_SIZE]; 
 
-    if (pos < 0 || len < 0 || pos + len > SV_NDIRECT_BLKS * SV_BLOCK_SIZE) { // if pos and len negative or write is too big return -1
+
+    if (pos < 0 || len < 0 || pos + len > SV_NDIRECT_BLKS * SV_BLOCK_SIZE) {
         return -1;
     }
-    if (len == 0) { // if len is 0 return 0 -- can't write to 0 bytes
+    if (len == 0) { 
         return 0;
     }
 
-    for (long page = pos / SV_BLOCK_SIZE; page <= (pos + len - 1) / SV_BLOCK_SIZE; page++) { // go through each page
+    for (long page = pos / SV_BLOCK_SIZE; page <= (pos + len - 1) / SV_BLOCK_SIZE; page++) { 
         long is_new = 0; // if the page is new -- right now false by default
 
         if (node->inode.svi_direct_blocks[page] <= 0) { // if the block number is less than 0 which means that there is no blcok assigned
-            spinlock_lock(&svfs.svfs_mutex); // lock mutex
+            spinlock_lock(&svfs.svfs_mutex); 
 
-            long block = -1; // block -1 right now -- nonexistent rn
-            for (long i = 0; i < SV_NFBLKS_PER_NODE - 1; i++) { // go through free block list
-                if (super->svs_free_blocks[i] > 0) { // if the block is >0 -- free
+            long block = -1; 
+            for (long i = 0; i < SV_NFBLKS_PER_NODE - 1; i++) { 
+                if (super->svs_free_blocks[i] > 0) {
                     block = super->svs_free_blocks[i]; // set current block to thsi free blcok
-                    super->svs_free_blocks[i] = -1; // free block list index is -1 -- not free anymore
+                    super->svs_free_blocks[i] = -1;
                     break; 
                 }
             }
 
-            if (block == -1) {  // no free block found 
+            if (block == -1) { 
                 block = super->svs_free_blocks[SV_NFBLKS_PER_NODE - 1]; // use last block in free list
                 if (block <= 0) { // no more free blocks after last block
                     spinlock_unlock(&svfs.svfs_mutex);
-                    return -1; // can't do anything so leave & return -1
+                    return -1; 
                 }
-                read_disk_block(block, blk); // read block from disk into buffer
+                read_disk_block(block, blk);
                 for (long i = 0; i < SV_NFBLKS_PER_NODE; i++) {
                     super->svs_free_blocks[i] = ((long *) blk)[i]; // refill free list with next batch of blocks
                 }
             }
-            super->svs_nfree--; // 1 less free block now
+            super->svs_nfree--; 
 
-            for (long i = 0; i < SV_BLOCK_SIZE; i++) { // reset buffer
+
+            for (long i = 0; i < SV_BLOCK_SIZE; i++) { // reset bffer
                 blk[i] = 0;
             }
             *(svfs_super_t *) blk = *super; // write changes into super block 
             write_disk_block(SV_SUPER_BLOCK, blk);
 
-            spinlock_unlock(&svfs.svfs_mutex); // unlock mutex -- done with changes
+            spinlock_unlock(&svfs.svfs_mutex); 
 
-            node->inode.svi_direct_blocks[page] = block; // assign this block to our page
-            is_new = 1; // page is new -- true because it has a new block
+            node->inode.svi_direct_blocks[page] = block; 
+            is_new = 1; // true now
         }
 
         pframe_t *pf; 
         mobj_get_pframe(&vn->vn_mobj, page, &pf); // get page frame from mobj
-        if (pf == NULL) { // null means not loaded properly so leave
+        if (pf == NULL) { 
             return -1;
         }
         if (is_new) { 
@@ -270,10 +271,10 @@ long svfs_write(vnode_t *vn, long pos, const void *buf, long len) {
         }
     }
 
-    long written = mobj_write(&vn->vn_mobj, pos, len, buf); // write to mobj & store number of bytes written
+    long written = mobj_write(&vn->vn_mobj, pos, len, buf); 
 
     if (pos + written > vn->vn_len) { // if the write is past the end of the file
-        vn->vn_len = pos + written; // update the length of the file
+        vn->vn_len = pos + written; 
         node->inode.svi_un.svi_size = vn->vn_len;
     }
 
@@ -302,12 +303,13 @@ long svfs_mknod(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
         return -1;
     }
 
+
     long ino = svfs_alloc_inode(&svfs); // allocate a new inode
-    if (ino < 0) { // if no inode found, return -1
+    if (ino < 0) {
         return -1;
     }
 
-    for (long i = 0; i < SV_BLOCK_SIZE; i++) { // reset buffer
+    for (long i = 0; i < SV_BLOCK_SIZE; i++) { // reset bffer
         blk[i] = 0;
     }
 
@@ -315,21 +317,21 @@ long svfs_mknod(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
     svfs_inode_t *inode = (svfs_inode_t *) blk;
     inode->svi_un.svi_size = 0; 
     inode->svi_number = ino; 
-    inode->svi_count = 1; // count 1?? not sure what this is for
-    write_disk_block(ino + 1, blk); // write inode to disk
+    inode->svi_count = 1;
+    write_disk_block(ino + 1, blk);
 
-    svfs_node_t *node = slab_obj_alloc(*dir->vn_fs->vnode_allocator); // allocate a new node in memory
-    node->inode.svi_number = ino; // set inode number
-    svfs_read_vnode(dir->vn_fs, &node->vnode); // read vnode from disk to memory
+    svfs_node_t *node = slab_obj_alloc(*dir->vn_fs->vnode_allocator); 
+    node->inode.svi_number = ino;
+    svfs_read_vnode(dir->vn_fs, &node->vnode); 
 
-    dirent_t d = {0}; // create a new dirent
+    dirent_t d = {0}; 
     d.d_ino = ino;
-    d.d_off = dir->vn_len + dsize; // offset
-    for (long i = 0; i < namelen; i++) { // set the name of the dirent
+    d.d_off = dir->vn_len + dsize; 
+    for (long i = 0; i < namelen; i++) { 
         d.d_name[i] = name[i];
     }
     long written = svfs_write(dir, dir->vn_len, &d, dsize); // write dirent to directory
-    if (written != dsize) { // if not the correct size return -1
+    if (written != dsize) {
         return -1;
     }
 
@@ -341,10 +343,10 @@ long svfs_mknod(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
  * Creates a new directory
  */
 long svfs_mkdir(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
-    long dsize = sizeof(dirent_t); // size of dirent
+    long dsize = sizeof(dirent_t); 
     long result = svfs_mknod(dir, name, namelen, out); // create a new file
 
-    if (result != 0) { // if not successful return -1
+    if (result != 0) { 
         return -1;
     }
 
@@ -352,6 +354,7 @@ long svfs_mkdir(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
     vnode_t *vn = *out; 
     vn->vn_mode = DIRECTORY;
     vn->vn_ops = &svfs_dir_vops;
+
 
     // create . and .. dirents -- have to be the first two dirents in a directory
     dirent_t dot = {0};
@@ -367,7 +370,7 @@ long svfs_mkdir(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
     // write . and .. dirents to the new directory
     long written = svfs_write(vn, 0, &dot, dsize);
     long written2 = svfs_write(vn, dsize, &dotdot, dsize);
-    if (written != dsize || written2 != dsize) { // if not the correct size return -1
+    if (written != dsize || written2 != dsize) {
         return -1;
     }
     return 0;
@@ -378,21 +381,22 @@ long svfs_mkdir(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
  */
 long svfs_lookup(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
     svfs_node_t found; // temporary node for the entry
-    fs_t *fs = dir->vn_fs; // get the file system
+    fs_t *fs = dir->vn_fs; 
 
     long entry = svfs_find_dirent((svfs_node_t *) dir, name, namelen, &found);
 
-    if (entry != 0) {  // if the entry is not found return -1
+    if (entry != 0) { 
         return -1;
     }
-    long ino = found.inode.svi_number; // get the inode number of the entry
+    long ino = found.inode.svi_number;
+
 
     spinlock_lock(&fs->vnode_list_mutex);
     for (list_link_t *link = fs->vnode_list.head; link != NULL; link = link->next) { // traverse list of vnodes
-        svfs_node_t *node = link->parent; // curent vnode's parent node
+        svfs_node_t *node = link->parent;
         if (node->inode.svi_number == ino) { 
-            *out = &node->vnode; // set the output to the vnode
-            spinlock_unlock(&fs->vnode_list_mutex); // unlock the mutex
+            *out = &node->vnode; 
+            spinlock_unlock(&fs->vnode_list_mutex); 
             return 0; // found the entry so return 0
         }
     }
@@ -412,17 +416,17 @@ long svfs_lookup(vnode_t *dir, const char *name, long namelen, vnode_t **out) {
  */
 long svfs_readdir(vnode_t *vnode, long pos, dirent_t **d) {
     static dirent_t ent; // temporary dirent
-    long dsize = sizeof(dirent_t); // size of dirent
+    long dsize = sizeof(dirent_t); 
 
     if (pos < 0 || pos % dsize != 0 || pos + dsize > vnode->vn_len) { // if pos is negative, not a multiple of sizeof(dirent), or past the end return -1 -- invalid position
         return -1;
     }
     long read = svfs_read(vnode, pos, &ent, dsize); 
-    if (read != dsize) { // if not the correct size return -1
+    if (read != dsize) { 
         return -1;
     }
 
-    *d = &ent; // set the output to the dirent
+    *d = &ent; 
     return 0;
 }
 
@@ -430,13 +434,13 @@ long svfs_readdir(vnode_t *vnode, long pos, dirent_t **d) {
  * Read the data associated from a file on the disk
  */
 long svfs_read_pframe(vnode_t *vnode, long pagenum, pframe_t **pfp) {
-    svfs_node_t *node = (svfs_node_t *) vnode; // get the node from the vnode
+    svfs_node_t *node = (svfs_node_t *) vnode; 
 
     if (pagenum < 0 || pagenum >= SV_NDIRECT_BLKS) { //  invalid page number
         return -1;
     }
 
-    long block = node->inode.svi_direct_blocks[pagenum]; // get the block number from the inode
+    long block = node->inode.svi_direct_blocks[pagenum]; 
     if (block <= 0) {
         return -1; //  no block assigned
     }
@@ -447,7 +451,7 @@ long svfs_read_pframe(vnode_t *vnode, long pagenum, pframe_t **pfp) {
     pf->pf_addr = pf->bytes;
     read_disk_block(block, pf->bytes);
     list_link_init(&pf->pf_link, pf);
-    list_insert_back(&vnode->vn_mobj.mo_pframes, &pf->pf_link); // do we need a lock here?
+    list_insert_back(&vnode->vn_mobj.mo_pframes, &pf->pf_link); // do we need a lock here? -- no
 
     *pfp = pf; // set the output to the pframe
     return 0;
@@ -463,12 +467,12 @@ long svfs_write_pframe(vnode_t *vnode, pframe_t *pf) {
     if (pf->pf_pagenum < 0 || pf->pf_pagenum >= SV_NDIRECT_BLKS) { // invalid page number
         return -1;
     }
-    long block = node->inode.svi_direct_blocks[pf->pf_pagenum]; // get the block number from the inode
+    long block = node->inode.svi_direct_blocks[pf->pf_pagenum]; 
     if (block <= 0) { // no block assigned
         return -1;
     }
 
 
-    write_disk_block(block, pf->bytes); // write the page frame to the block on the disk
+    write_disk_block(block, pf->bytes); 
     return 0;
 }

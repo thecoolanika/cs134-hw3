@@ -56,5 +56,8 @@ svfstest: $(ALL)
 	$(CC) $(FLAGS) $(LIBFLAGS) $(INCLUDE) test/svfs_test.c -o bin/svfs_test.o
 	$(CC) $(FLAGS) $(ALLOBJS) bin/svfs_test.o -o bin/svfs_test
 
+namev:
+	$(CC) $(FLAGS) $(LIBFLAGS) $(INCLUDE) src/namev.c -o bin/namev.o
+
 clean:
 	rm -f bin/*
